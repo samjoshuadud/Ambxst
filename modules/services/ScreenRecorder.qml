@@ -22,13 +22,17 @@ QtObject {
         checkProcess.running = true;
     }
 
+    property string recorderBackend: "gpu-screen-recorder"
+
     property Process checkCapabilitiesProcess: Process {
         id: checkCapabilitiesProcess
-        command: ["bash", "-c", "if [ -f /run/current-system/sw/bin/nixos-version ]; then if [[ \"$(type -p gpu-screen-recorder)\" == *\"/run/wrappers/bin/\"* ]]; then echo true; else echo false; fi; else echo true; fi"]
+        command: ["bash", "-c", "if [ -x /run/wrappers/bin/gpu-screen-recorder ]; then echo gpu-screen-recorder; elif type -p wf-recorder > /dev/null; then echo wf-recorder; elif type -p gpu-screen-recorder > /dev/null; then echo gpu-screen-recorder; else echo none; fi"]
         running: false
         stdout: StdioCollector {
             onTextChanged: {
-                root.canRecordDirectly = (text.trim() === "true");
+                var backend = text.trim();
+                root.recorderBackend = backend;
+                root.canRecordDirectly = (backend !== "none");
             }
         }
     }
@@ -70,7 +74,7 @@ QtObject {
 
     property Process checkProcess: Process {
         id: checkProcess
-        command: ["bash", "-c", "pgrep -f 'gpu-screen-recorder' | grep -v $$ > /dev/null"]
+        command: ["bash", "-c", "pgrep -f '" + root.recorderBackend + "' | grep -v $$ > /dev/null"]
         onExited: exitCode => {
             var wasRecording = root.isRecording;
             root.isRecording = (exitCode === 0);
@@ -89,7 +93,7 @@ QtObject {
 
     property Process timeProcess: Process {
         id: timeProcess
-        command: ["bash", "-c", "pid=$(pgrep -f 'gpu-screen-recorder' | head -n 1); if [ -n \"$pid\" ]; then ps -o etime= -p \"$pid\"; fi"]
+        command: ["bash", "-c", "pid=$(pgrep -f '" + root.recorderBackend + "' | head -n 1); if [ -n \"$pid\" ]; then ps -o etime= -p \"$pid\"; fi"]
         stdout: StdioCollector {
             onTextChanged: {
                 root.duration = text.trim();
@@ -111,34 +115,50 @@ QtObject {
             return;
 
         var outputFile = root.videosDir + "/" + new Date().toISOString().replace(/[:.]/g, "-") + ".mp4";
-        var cmd = "gpu-screen-recorder -f 60";
+        var cmd = "";
 
-        // Window mode
-        if (mode === "portal") {
-            cmd += " -w portal";
-        } else if (mode === "screen") {
-            cmd += " -w screen";
-        } else if (mode === "region") {
-            cmd += " -w region";
-            if (regionStr) {
-                cmd += " -region " + regionStr;
+        if (root.recorderBackend === "wf-recorder") {
+            cmd = "wf-recorder";
+            
+            if (mode === "region" && regionStr) {
+                cmd += " -g \"" + regionStr + "\"";
             }
+            
+            if (recordAudioOutput || recordAudioInput) {
+                cmd += " -a"; 
+            }
+            
+            cmd += " -f \"" + outputFile + "\"";
+        } else {
+            cmd = "gpu-screen-recorder -f 60";
+
+            // Window mode
+            if (mode === "portal") {
+                cmd += " -w portal";
+            } else if (mode === "screen") {
+                cmd += " -w screen";
+            } else if (mode === "region") {
+                cmd += " -w region";
+                if (regionStr) {
+                    cmd += " -region " + regionStr;
+                }
+            }
+
+            // Audio sources
+            var audioSources = [];
+            if (recordAudioOutput)
+                audioSources.push("default_output");
+            if (recordAudioInput)
+                audioSources.push("default_input");
+
+            if (audioSources.length === 1) {
+                cmd += " -a " + audioSources[0];
+            } else if (audioSources.length > 1) {
+                cmd += " -a \"" + audioSources.join("|") + "\"";
+            }
+
+            cmd += " -o \"" + outputFile + "\"";
         }
-
-        // Audio sources
-        var audioSources = [];
-        if (recordAudioOutput)
-            audioSources.push("default_output");
-        if (recordAudioInput)
-            audioSources.push("default_input");
-
-        if (audioSources.length === 1) {
-            cmd += " -a " + audioSources[0];
-        } else if (audioSources.length > 1) {
-            cmd += " -a \"" + audioSources.join("|") + "\"";
-        }
-
-        cmd += " -o \"" + outputFile + "\"";
 
         console.log("[ScreenRecorder] Starting with command: " + cmd);
         startProcess.command = ["bash", "-c", cmd];
@@ -211,6 +231,6 @@ QtObject {
 
     property Process stopProcess: Process {
         id: stopProcess
-        command: ["pkill", "-SIGINT", "-f", "gpu-screen-recorder"]
+        command: ["pkill", "-SIGINT", "-f", root.recorderBackend]
     }
 }
