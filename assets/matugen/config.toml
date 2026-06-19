@@ -29,3 +29,7 @@ blend = true
 [config.custom_colors.white]
 color = "#FFFFFF"
 blend = true
+
+[templates.waylandar]
+input_path = "~/.config/waylandar/theme_template.qml"
+output_path = "~/.config/waylandar/frontend/Theme.qml"
