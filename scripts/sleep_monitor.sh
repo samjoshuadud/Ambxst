@@ -3,7 +3,7 @@
 LOCKFILE="/tmp/ambxst_sleep_monitor.lock"
 if [ -e "$LOCKFILE" ]; then
 	PID=$(cat "$LOCKFILE")
-	if kill -0 "$PID" 2>/dev/null; then
+	if kill -0 "$PID" 2>/dev/null && grep -q "sleep_monitor.sh" "/proc/$PID/cmdline" 2>/dev/null; then
 		exit 0
 	fi
 fi
